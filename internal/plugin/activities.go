@@ -5,7 +5,10 @@ import (
 	"strconv"
 	"strings"
 
+	temporalv1 "github.com/cludden/protoc-gen-go-temporal/gen/temporal/v1"
 	g "github.com/dave/jennifer/jen"
+	"google.golang.org/protobuf/compiler/protogen"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // genActivitiesInterface generates an Activities interface
@@ -161,7 +164,6 @@ func (svc *Service) genActivityFutureSelectMethod(f *g.File, activity string) {
 		)
 }
 
-// genActivityFunction generates a public <Activity>[Local] function
 func (svc *Service) genActivityFunction(f *g.File, activity string, local bool) {
 	method := svc.methods[activity]
 	methodName := method.GoName
@@ -176,27 +178,8 @@ func (svc *Service) genActivityFunction(f *g.File, activity string, local bool) 
 		Id(methodName).
 		ParamsFunc(func(args *g.Group) {
 			args.Id("ctx").Qual(workflowPkg, "Context")
-			if local {
-				args.Id("opts").Op("*").Qual(workflowPkg, "LocalActivityOptions")
-			} else {
-				args.Id("opts").Op("*").Qual(workflowPkg, "ActivityOptions")
-			}
-			if local {
-				args.Id("fn").
-					Func().
-					ParamsFunc(func(fnargs *g.Group) {
-						fnargs.Qual("context", "Context")
-						if hasInput {
-							fnargs.Op("*").Id(method.Input.GoIdent.GoName)
-						}
-					}).
-					ParamsFunc(func(fnreturn *g.Group) {
-						if hasOutput {
-							fnreturn.Op("*").Id(method.Output.GoIdent.GoName)
-						}
-						fnreturn.Error()
-					})
-			}
+			addOptionsParam(args, local)
+			addFuncParam(args, local, hasInput, hasOutput, method)
 			if hasInput {
 				args.Id("req").Op("*").Id(method.Input.GoIdent.GoName)
 			}
@@ -205,115 +188,144 @@ func (svc *Service) genActivityFunction(f *g.File, activity string, local bool) 
 			g.Op("*").Id(fmt.Sprintf("%sFuture", method.GoName)),
 		).
 		BlockFunc(func(fn *g.Group) {
-			// initialize activity options if nil
-			fn.If(g.Id("opts").Op("==").Nil()).BlockFunc(func(bl *g.Group) {
-				optionsFn := "GetActivityOptions"
-				if local {
-					optionsFn = "GetLocalActivityOptions"
-				}
-				bl.Id("activityOpts").Op(":=").Qual(workflowPkg, optionsFn).Call(
-					g.Id("ctx"),
-				)
-				bl.Id("opts").Op("=").Op("&").Id("activityOpts")
-			})
-
-			// set default retry policy
-			if policy := opts.GetRetryPolicy(); policy != nil {
-				fn.If(g.Id("opts").Dot("RetryPolicy").Op("==").Nil()).Block(
-					g.Id("opts").Dot("RetryPolicy").Op("=").Op("&").Qual(temporalPkg, "RetryPolicy").ValuesFunc(func(fields *g.Group) {
-						if d := policy.GetInitialInterval(); d.IsValid() {
-							fields.Id("InitialInterval").Op(":").Id(strconv.FormatInt(d.AsDuration().Nanoseconds(), 10))
-						}
-						if d := policy.GetMaxInterval(); d.IsValid() {
-							fields.Id("MaximumInterval").Op(":").Id(strconv.FormatInt(d.AsDuration().Nanoseconds(), 10))
-						}
-						if n := policy.GetBackoffCoefficient(); n != 0 {
-							fields.Id("BackoffCoefficient").Op(":").Lit(n)
-						}
-						if n := policy.GetMaxAttempts(); n != 0 {
-							fields.Id("MaximumAttempts").Op(":").Lit(n)
-						}
-						if errs := policy.GetNonRetryableErrorTypes(); len(errs) > 0 {
-							fields.Id("NonRetryableErrorTypes").Op(":").Lit(errs)
-						}
-					}),
-				)
-			}
-
-			// set default heartbeat timeout
-			if timeout := opts.GetHeartbeatTimeout(); !local && timeout.IsValid() {
-				fn.If(g.Id("opts").Dot("HeartbeatTimeout").Op("==").Lit(0)).Block(
-					g.Id("opts").Dot("HeartbeatTimeout").Op("=").Id(strconv.FormatInt(timeout.AsDuration().Nanoseconds(), 10)).Comment(timeout.AsDuration().String()),
-				)
-			}
-
-			// set default schedule to close timeout
-			if timeout := opts.GetScheduleToCloseTimeout(); timeout.IsValid() {
-				fn.If(g.Id("opts").Dot("ScheduleToCloseTimeout").Op("==").Lit(0)).Block(
-					g.Id("opts").Dot("ScheduleToCloseTimeout").Op("=").Id(strconv.FormatInt(timeout.AsDuration().Nanoseconds(), 10)).Comment(timeout.AsDuration().String()),
-				)
-			}
-
-			// set default schedule to start timeout
-			if timeout := opts.GetScheduleToStartTimeout(); !local && timeout.IsValid() {
-				fn.If(g.Id("opts").Dot("ScheduleToStartTimeout").Op("==").Lit(0)).Block(
-					g.Id("opts").Dot("ScheduleToStartTimeout").Op("=").Id(strconv.FormatInt(timeout.AsDuration().Nanoseconds(), 10)).Comment(timeout.AsDuration().String()),
-				)
-			}
-
-			// set default start to close timeout
-			if timeout := opts.GetStartToCloseTimeout(); timeout.IsValid() {
-				fn.If(g.Id("opts").Dot("StartToCloseTimeout").Op("==").Lit(0)).Block(
-					g.Id("opts").Dot("StartToCloseTimeout").Op("=").Id(strconv.FormatInt(timeout.AsDuration().Nanoseconds(), 10)).Comment(timeout.AsDuration().String()),
-				)
-			}
-
-			// inject ctx with activity options
-			if local {
-				fn.Id("ctx").Op("=").Qual(workflowPkg, "WithLocalActivityOptions").Call(
-					g.Id("ctx"), g.Op("*").Id("opts"),
-				)
-
-			} else {
-				fn.Id("ctx").Op("=").Qual(workflowPkg, "WithActivityOptions").Call(
-					g.Id("ctx"), g.Op("*").Id("opts"),
-				)
-			}
-
-			// if activity function nil for local activity, replace with activity name
-			if local {
-				fn.Var().Id("activity").Any()
-				fn.If(g.Id("fn").Op("==").Nil()).
-					Block(
-						g.Id("activity").Op("=").Id(fmt.Sprintf("%sActivityName", activity)),
-					).
-					Else().
-					Block(
-						g.Id("activity").Op("=").Id("fn"),
-					)
-			}
-
-			fn.Return(
-				g.Op("&").Id(fmt.Sprintf("%sFuture", method.GoName)).ValuesFunc(func(bl *g.Group) {
-					future := bl.Id("Future").Op(":")
-					if local {
-						future.Qual(workflowPkg, "ExecuteLocalActivity").CallFunc(func(returnVals *g.Group) {
-							returnVals.Id("ctx")
-							returnVals.Id("activity")
-							if hasInput {
-								returnVals.Id("req")
-							}
-						}).Op(",")
-					} else {
-						future.Qual(workflowPkg, "ExecuteActivity").CallFunc(func(returnVals *g.Group) {
-							returnVals.Id("ctx")
-							returnVals.Id(fmt.Sprintf("%sActivityName", method.GoName))
-							if hasInput {
-								returnVals.Id("req")
-							}
-						}).Op(",")
-					}
-				}),
-			)
+			initializeActivityOptions(fn, local)
+			setDefaultRetryPolicy(fn, opts)
+			setDefaultTimeouts(fn, opts, local)
+			injectCtxWithActivityOptions(fn, local)
+			setActivityFunctionForLocal(fn, local, activity)
+			callExecuteActivity(fn, method, local, hasInput)
 		})
+}
+
+func addOptionsParam(args *g.Group, local bool) {
+	if local {
+		args.Id("opts").Op("*").Qual(workflowPkg, "LocalActivityOptions")
+	} else {
+		args.Id("opts").Op("*").Qual(workflowPkg, "ActivityOptions")
+	}
+}
+
+func addFuncParam(args *g.Group, local bool, hasInput bool, hasOutput bool, method *protogen.Method) {
+	if local {
+		args.Id("fn").
+			Func().
+			ParamsFunc(func(fnargs *g.Group) {
+				fnargs.Qual("context", "Context")
+				if hasInput {
+					fnargs.Op("*").Id(method.Input.GoIdent.GoName)
+				}
+			}).
+			ParamsFunc(func(fnreturn *g.Group) {
+				if hasOutput {
+					fnreturn.Op("*").Id(method.Output.GoIdent.GoName)
+				}
+				fnreturn.Error()
+			})
+	}
+}
+
+func initializeActivityOptions(fn *g.Group, local bool) {
+	fn.If(g.Id("opts").Op("==").Nil()).BlockFunc(func(bl *g.Group) {
+		optionsFn := "GetActivityOptions"
+		if local {
+			optionsFn = "GetLocalActivityOptions"
+		}
+		bl.Id("activityOpts").Op(":=").Qual(workflowPkg, optionsFn).Call(
+			g.Id("ctx"),
+		)
+		bl.Id("opts").Op("=").Op("&").Id("activityOpts")
+	})
+}
+
+func setDefaultRetryPolicy(fn *g.Group, opts *temporalv1.ActivityOptions_StartOptions) {
+	if policy := opts.GetRetryPolicy(); policy != nil {
+		fn.If(g.Id("opts").Dot("RetryPolicy").Op("==").Nil()).Block(
+			g.Id("opts").Dot("RetryPolicy").Op("=").Op("&").Qual(temporalPkg, "RetryPolicy").ValuesFunc(func(fields *g.Group) {
+				if d := policy.GetInitialInterval(); d.IsValid() {
+					fields.Id("InitialInterval").Op(":").Id(strconv.FormatInt(d.AsDuration().Nanoseconds(), 10))
+				}
+				if d := policy.GetMaxInterval(); d.IsValid() {
+					fields.Id("MaximumInterval").Op(":").Id(strconv.FormatInt(d.AsDuration().Nanoseconds(), 10))
+				}
+				if n := policy.GetBackoffCoefficient(); n != 0 {
+					fields.Id("BackoffCoefficient").Op(":").Lit(n)
+				}
+				if n := policy.GetMaxAttempts(); n != 0 {
+					fields.Id("MaximumAttempts").Op(":").Lit(n)
+				}
+				if errs := policy.GetNonRetryableErrorTypes(); len(errs) > 0 {
+					fields.Id("NonRetryableErrorTypes").Op(":").Lit(errs)
+				}
+			}),
+		)
+	}
+}
+
+func setDefaultTimeouts(fn *g.Group, opts *temporalv1.ActivityOptions_StartOptions, local bool) {
+	setTimeoutIfValid(fn, opts.GetHeartbeatTimeout(), "HeartbeatTimeout", !local)
+	setTimeoutIfValid(fn, opts.GetScheduleToCloseTimeout(), "ScheduleToCloseTimeout", true)
+	setTimeoutIfValid(fn, opts.GetScheduleToStartTimeout(), "ScheduleToStartTimeout", !local)
+	setTimeoutIfValid(fn, opts.GetStartToCloseTimeout(), "StartToCloseTimeout", true)
+}
+
+func setTimeoutIfValid(fn *g.Group, timeout *durationpb.Duration, field string, valid bool) {
+	if valid && timeout.IsValid() {
+		fn.If(g.Id("opts").Dot(field).Op("==").Lit(0)).Block(
+			g.Id("opts").Dot(field).Op("=").
+				Id(strconv.FormatInt(timeout.AsDuration().Nanoseconds(), 10)).
+				Comment(timeout.AsDuration().String()),
+		)
+	}
+}
+
+func injectCtxWithActivityOptions(fn *g.Group, local bool) {
+	if local {
+		fn.Id("ctx").Op("=").Qual(workflowPkg, "WithLocalActivityOptions").Call(
+			g.Id("ctx"), g.Op("*").Id("opts"),
+		)
+
+	} else {
+		fn.Id("ctx").Op("=").Qual(workflowPkg, "WithActivityOptions").Call(
+			g.Id("ctx"), g.Op("*").Id("opts"),
+		)
+	}
+}
+
+func setActivityFunctionForLocal(fn *g.Group, local bool, activity string) {
+	if local {
+		fn.Var().Id("activity").Any()
+		fn.If(g.Id("fn").Op("==").Nil()).
+			Block(
+				g.Id("activity").Op("=").Id(fmt.Sprintf("%sActivityName", activity)),
+			).
+			Else().
+			Block(
+				g.Id("activity").Op("=").Id("fn"),
+			)
+	}
+}
+
+func callExecuteActivity(fn *g.Group, method *protogen.Method, local bool, hasInput bool) {
+	fn.Return(
+		g.Op("&").Id(fmt.Sprintf("%sFuture", method.GoName)).ValuesFunc(func(bl *g.Group) {
+			future := bl.Id("Future").Op(":")
+			if local {
+				future.Qual(workflowPkg, "ExecuteLocalActivity").CallFunc(func(returnVals *g.Group) {
+					returnVals.Id("ctx")
+					returnVals.Id("activity")
+					if hasInput {
+						returnVals.Id("req")
+					}
+				}).Op(",")
+			} else {
+				future.Qual(workflowPkg, "ExecuteActivity").CallFunc(func(returnVals *g.Group) {
+					returnVals.Id("ctx")
+					returnVals.Id(fmt.Sprintf("%sActivityName", method.GoName))
+					if hasInput {
+						returnVals.Id("req")
+					}
+				}).Op(",")
+			}
+		}),
+	)
 }
