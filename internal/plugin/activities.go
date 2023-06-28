@@ -176,7 +176,6 @@ func (svc *Service) genSyncActivityFunction(f *g.File, activity string, local bo
 	f.Comment(strings.TrimSuffix(method.Comments.Leading.String(), "\n"))
 	f.Func().Id(methodName).ParamsFunc(func(args *g.Group) {
 		args.Id("ctx").Qual(workflowPkg, "Context")
-		addOptionsParam(args, local)
 		addFuncParam(args, local, hasInput, hasOutput, method)
 		if hasInput {
 			args.Id("req").Op("*").Id(method.Input.GoIdent.GoName)
@@ -195,7 +194,6 @@ func (svc *Service) genSyncActivityFunction(f *g.File, activity string, local bo
 		if local {
 			callArgs = append(callArgs, g.Id("fn"))
 		}
-		callArgs = append(callArgs, g.Id("opts"))
 
 		fn.Id("future").Op(":=").Id("Async" + methodName).Call(callArgs...)
 
@@ -225,7 +223,6 @@ func (svc *Service) genAsyncActivityFunction(f *g.File, activity string, local b
 				args.Id("req").Op("*").Id(method.Input.GoIdent.GoName)
 			}
 			addFuncParam(args, local, hasInput, hasOutput, method)
-			addOptionsParam(args, local)
 		}).
 		Params(
 			g.Op("*").Id(fmt.Sprintf("%sFuture", method.GoName)),
@@ -238,14 +235,6 @@ func (svc *Service) genAsyncActivityFunction(f *g.File, activity string, local b
 			setActivityFunctionForLocal(fn, local, activity)
 			callExecuteActivity(fn, method, local, hasInput)
 		})
-}
-
-func addOptionsParam(args *g.Group, local bool) {
-	if local {
-		args.Id("opts").Op("*").Qual(workflowPkg, "LocalActivityOptions")
-	} else {
-		args.Id("opts").Op("*").Qual(workflowPkg, "ActivityOptions")
-	}
 }
 
 func addFuncParam(args *g.Group, local bool, hasInput bool, hasOutput bool, method *protogen.Method) {
@@ -268,16 +257,13 @@ func addFuncParam(args *g.Group, local bool, hasInput bool, hasOutput bool, meth
 }
 
 func initializeActivityOptions(fn *g.Group, local bool) {
-	fn.If(g.Id("opts").Op("==").Nil()).BlockFunc(func(bl *g.Group) {
-		optionsFn := "GetActivityOptions"
-		if local {
-			optionsFn = "GetLocalActivityOptions"
-		}
-		bl.Id("activityOpts").Op(":=").Qual(workflowPkg, optionsFn).Call(
-			g.Id("ctx"),
-		)
-		bl.Id("opts").Op("=").Op("&").Id("activityOpts")
-	})
+	optionsFn := "GetActivityOptions"
+	if local {
+		optionsFn = "GetLocalActivityOptions"
+	}
+	fn.Id("opts").Op(":=").Qual(workflowPkg, optionsFn).Call(
+		g.Id("ctx"),
+	)
 }
 
 func setDefaultRetryPolicy(fn *g.Group, opts *temporalv1.ActivityOptions_StartOptions) {
@@ -324,12 +310,14 @@ func setTimeoutIfValid(fn *g.Group, timeout *durationpb.Duration, field string, 
 func injectCtxWithActivityOptions(fn *g.Group, local bool) {
 	if local {
 		fn.Id("ctx").Op("=").Qual(workflowPkg, "WithLocalActivityOptions").Call(
-			g.Id("ctx"), g.Op("*").Id("opts"),
+			g.Id("ctx"),
+			g.Id("opts"),
 		)
 
 	} else {
 		fn.Id("ctx").Op("=").Qual(workflowPkg, "WithActivityOptions").Call(
-			g.Id("ctx"), g.Op("*").Id("opts"),
+			g.Id("ctx"),
+			g.Id("opts"),
 		)
 	}
 }

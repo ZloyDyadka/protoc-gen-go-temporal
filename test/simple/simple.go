@@ -32,7 +32,7 @@ func (s *someWorkflow1) Execute(ctx workflow.Context) (*simplepb.SomeWorkflow1Re
 	s.events = append(s.events, "started with param "+s.Req.RequestVal)
 
 	// Call regular activity
-	resp, err := simplepb.AsyncSomeActivity3(ctx, &simplepb.SomeActivity3Request{RequestVal: "some activity param"}, nil).Get(ctx)
+	resp, err := simplepb.AsyncSomeActivity3(ctx, &simplepb.SomeActivity3Request{RequestVal: "some activity param"}).Get(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func (s *someWorkflow1) Execute(ctx workflow.Context) (*simplepb.SomeWorkflow1Re
 	someActvtLocalReq := &simplepb.SomeActivity3Request{
 		RequestVal: "some local activity param",
 	}
-	resp, err = simplepb.AsyncSomeActivity3Local(ctx, someActvtLocalReq, nil, nil).Get(ctx)
+	resp, err = simplepb.AsyncSomeActivity3Local(ctx, someActvtLocalReq, nil).Get(ctx)
 	if err != nil {
 		return nil, err
 	}

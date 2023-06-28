@@ -942,34 +942,28 @@ func (f *SomeActivity1Future) Select(sel workflow.Selector, fn func(*SomeActivit
 }
 
 // SomeActivity1 does some activity thing.
-func SomeActivity1Local(ctx workflow.Context, opts *workflow.LocalActivityOptions, fn func(context.Context) error) error {
-	future := AsyncSomeActivity1Local(ctx, fn, opts)
+func SomeActivity1Local(ctx workflow.Context, fn func(context.Context) error) error {
+	future := AsyncSomeActivity1Local(ctx, fn)
 	return future.Get(ctx)
 }
 
 // SomeActivity1 does some activity thing.
-func SomeActivity1(ctx workflow.Context, opts *workflow.ActivityOptions) error {
-	future := AsyncSomeActivity1(ctx, opts)
+func SomeActivity1(ctx workflow.Context) error {
+	future := AsyncSomeActivity1(ctx)
 	return future.Get(ctx)
 }
 
 // SomeActivity1 does some activity thing.
-func AsyncSomeActivity1(ctx workflow.Context, opts *workflow.ActivityOptions) *SomeActivity1Future {
-	if opts == nil {
-		activityOpts := workflow.GetActivityOptions(ctx)
-		opts = &activityOpts
-	}
-	ctx = workflow.WithActivityOptions(ctx, *opts)
+func AsyncSomeActivity1(ctx workflow.Context) *SomeActivity1Future {
+	opts := workflow.GetActivityOptions(ctx)
+	ctx = workflow.WithActivityOptions(ctx, opts)
 	return &SomeActivity1Future{Future: workflow.ExecuteActivity(ctx, SomeActivity1ActivityName)}
 }
 
 // SomeActivity1 does some activity thing.
-func AsyncSomeActivity1Local(ctx workflow.Context, fn func(context.Context) error, opts *workflow.LocalActivityOptions) *SomeActivity1Future {
-	if opts == nil {
-		activityOpts := workflow.GetLocalActivityOptions(ctx)
-		opts = &activityOpts
-	}
-	ctx = workflow.WithLocalActivityOptions(ctx, *opts)
+func AsyncSomeActivity1Local(ctx workflow.Context, fn func(context.Context) error) *SomeActivity1Future {
+	opts := workflow.GetLocalActivityOptions(ctx)
+	ctx = workflow.WithLocalActivityOptions(ctx, opts)
 	var activity any
 	if fn == nil {
 		activity = SomeActivity1ActivityName
@@ -1006,46 +1000,40 @@ func (f *SomeActivity2Future) Select(sel workflow.Selector, fn func(*SomeActivit
 }
 
 // SomeActivity2 does some activity thing.
-func SomeActivity2Local(ctx workflow.Context, opts *workflow.LocalActivityOptions, fn func(context.Context, *SomeActivity2Request) error, req *SomeActivity2Request) error {
-	future := AsyncSomeActivity2Local(ctx, req, fn, opts)
+func SomeActivity2Local(ctx workflow.Context, fn func(context.Context, *SomeActivity2Request) error, req *SomeActivity2Request) error {
+	future := AsyncSomeActivity2Local(ctx, req, fn)
 	return future.Get(ctx)
 }
 
 // SomeActivity2 does some activity thing.
-func SomeActivity2(ctx workflow.Context, opts *workflow.ActivityOptions, req *SomeActivity2Request) error {
-	future := AsyncSomeActivity2(ctx, req, opts)
+func SomeActivity2(ctx workflow.Context, req *SomeActivity2Request) error {
+	future := AsyncSomeActivity2(ctx, req)
 	return future.Get(ctx)
 }
 
 // SomeActivity2 does some activity thing.
-func AsyncSomeActivity2(ctx workflow.Context, req *SomeActivity2Request, opts *workflow.ActivityOptions) *SomeActivity2Future {
-	if opts == nil {
-		activityOpts := workflow.GetActivityOptions(ctx)
-		opts = &activityOpts
-	}
+func AsyncSomeActivity2(ctx workflow.Context, req *SomeActivity2Request) *SomeActivity2Future {
+	opts := workflow.GetActivityOptions(ctx)
 	if opts.RetryPolicy == nil {
 		opts.RetryPolicy = &temporal.RetryPolicy{MaximumInterval: 30000000000}
 	}
 	if opts.StartToCloseTimeout == 0 {
 		opts.StartToCloseTimeout = 10000000000 // 10s
 	}
-	ctx = workflow.WithActivityOptions(ctx, *opts)
+	ctx = workflow.WithActivityOptions(ctx, opts)
 	return &SomeActivity2Future{Future: workflow.ExecuteActivity(ctx, SomeActivity2ActivityName, req)}
 }
 
 // SomeActivity2 does some activity thing.
-func AsyncSomeActivity2Local(ctx workflow.Context, req *SomeActivity2Request, fn func(context.Context, *SomeActivity2Request) error, opts *workflow.LocalActivityOptions) *SomeActivity2Future {
-	if opts == nil {
-		activityOpts := workflow.GetLocalActivityOptions(ctx)
-		opts = &activityOpts
-	}
+func AsyncSomeActivity2Local(ctx workflow.Context, req *SomeActivity2Request, fn func(context.Context, *SomeActivity2Request) error) *SomeActivity2Future {
+	opts := workflow.GetLocalActivityOptions(ctx)
 	if opts.RetryPolicy == nil {
 		opts.RetryPolicy = &temporal.RetryPolicy{MaximumInterval: 30000000000}
 	}
 	if opts.StartToCloseTimeout == 0 {
 		opts.StartToCloseTimeout = 10000000000 // 10s
 	}
-	ctx = workflow.WithLocalActivityOptions(ctx, *opts)
+	ctx = workflow.WithLocalActivityOptions(ctx, opts)
 	var activity any
 	if fn == nil {
 		activity = SomeActivity2ActivityName
@@ -1086,46 +1074,40 @@ func (f *SomeActivity3Future) Select(sel workflow.Selector, fn func(*SomeActivit
 }
 
 // SomeActivity3 does some activity thing.
-func SomeActivity3Local(ctx workflow.Context, opts *workflow.LocalActivityOptions, fn func(context.Context, *SomeActivity3Request) (*SomeActivity3Response, error), req *SomeActivity3Request) (*SomeActivity3Response, error) {
-	future := AsyncSomeActivity3Local(ctx, req, fn, opts)
+func SomeActivity3Local(ctx workflow.Context, fn func(context.Context, *SomeActivity3Request) (*SomeActivity3Response, error), req *SomeActivity3Request) (*SomeActivity3Response, error) {
+	future := AsyncSomeActivity3Local(ctx, req, fn)
 	return future.Get(ctx)
 }
 
 // SomeActivity3 does some activity thing.
-func SomeActivity3(ctx workflow.Context, opts *workflow.ActivityOptions, req *SomeActivity3Request) (*SomeActivity3Response, error) {
-	future := AsyncSomeActivity3(ctx, req, opts)
+func SomeActivity3(ctx workflow.Context, req *SomeActivity3Request) (*SomeActivity3Response, error) {
+	future := AsyncSomeActivity3(ctx, req)
 	return future.Get(ctx)
 }
 
 // SomeActivity3 does some activity thing.
-func AsyncSomeActivity3(ctx workflow.Context, req *SomeActivity3Request, opts *workflow.ActivityOptions) *SomeActivity3Future {
-	if opts == nil {
-		activityOpts := workflow.GetActivityOptions(ctx)
-		opts = &activityOpts
-	}
+func AsyncSomeActivity3(ctx workflow.Context, req *SomeActivity3Request) *SomeActivity3Future {
+	opts := workflow.GetActivityOptions(ctx)
 	if opts.RetryPolicy == nil {
 		opts.RetryPolicy = &temporal.RetryPolicy{MaximumAttempts: int32(5)}
 	}
 	if opts.StartToCloseTimeout == 0 {
 		opts.StartToCloseTimeout = 10000000000 // 10s
 	}
-	ctx = workflow.WithActivityOptions(ctx, *opts)
+	ctx = workflow.WithActivityOptions(ctx, opts)
 	return &SomeActivity3Future{Future: workflow.ExecuteActivity(ctx, SomeActivity3ActivityName, req)}
 }
 
 // SomeActivity3 does some activity thing.
-func AsyncSomeActivity3Local(ctx workflow.Context, req *SomeActivity3Request, fn func(context.Context, *SomeActivity3Request) (*SomeActivity3Response, error), opts *workflow.LocalActivityOptions) *SomeActivity3Future {
-	if opts == nil {
-		activityOpts := workflow.GetLocalActivityOptions(ctx)
-		opts = &activityOpts
-	}
+func AsyncSomeActivity3Local(ctx workflow.Context, req *SomeActivity3Request, fn func(context.Context, *SomeActivity3Request) (*SomeActivity3Response, error)) *SomeActivity3Future {
+	opts := workflow.GetLocalActivityOptions(ctx)
 	if opts.RetryPolicy == nil {
 		opts.RetryPolicy = &temporal.RetryPolicy{MaximumAttempts: int32(5)}
 	}
 	if opts.StartToCloseTimeout == 0 {
 		opts.StartToCloseTimeout = 10000000000 // 10s
 	}
-	ctx = workflow.WithLocalActivityOptions(ctx, *opts)
+	ctx = workflow.WithLocalActivityOptions(ctx, opts)
 	var activity any
 	if fn == nil {
 		activity = SomeActivity3ActivityName
