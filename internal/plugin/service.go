@@ -206,8 +206,10 @@ func (svc *Service) render(f *g.File) {
 		svc.genActivityFuture(f, activity)
 		svc.genActivityFutureGetMethod(f, activity)
 		svc.genActivityFutureSelectMethod(f, activity)
-		svc.genActivityFunction(f, activity, false)
-		svc.genActivityFunction(f, activity, true)
+		svc.genSyncActivityFunction(f, activity, true)
+		svc.genSyncActivityFunction(f, activity, false)
+		svc.genAsyncActivityFunction(f, activity, false)
+		svc.genAsyncActivityFunction(f, activity, true)
 	}
 }
 

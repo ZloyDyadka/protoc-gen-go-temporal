@@ -164,12 +164,55 @@ func (svc *Service) genActivityFutureSelectMethod(f *g.File, activity string) {
 		)
 }
 
-func (svc *Service) genActivityFunction(f *g.File, activity string, local bool) {
+func (svc *Service) genSyncActivityFunction(f *g.File, activity string, local bool) {
 	method := svc.methods[activity]
 	methodName := method.GoName
 	if local {
 		methodName = fmt.Sprintf("%sLocal", methodName)
 	}
+	hasInput := !isEmpty(method.Input)
+	hasOutput := !isEmpty(method.Output)
+
+	f.Comment(strings.TrimSuffix(method.Comments.Leading.String(), "\n"))
+	f.Func().Id(methodName).ParamsFunc(func(args *g.Group) {
+		args.Id("ctx").Qual(workflowPkg, "Context")
+		addOptionsParam(args, local)
+		addFuncParam(args, local, hasInput, hasOutput, method)
+		if hasInput {
+			args.Id("req").Op("*").Id(method.Input.GoIdent.GoName)
+		}
+	}).ParamsFunc(func(returnVals *g.Group) {
+		if hasOutput {
+			returnVals.Op("*").Id(method.Output.GoIdent.GoName)
+		}
+		returnVals.Error()
+	}).BlockFunc(func(fn *g.Group) {
+		// Execute the activity
+		callArgs := []g.Code{g.Id("ctx")}
+		if hasInput {
+			callArgs = append(callArgs, g.Id("req"))
+		}
+		if local {
+			callArgs = append(callArgs, g.Id("fn"))
+		}
+		callArgs = append(callArgs, g.Id("opts"))
+
+		fn.Id("future").Op(":=").Id("Async" + methodName).Call(callArgs...)
+
+		// Get the activity result
+		fn.Return(
+			g.Id("future").Dot("Get").Call(g.Id("ctx")),
+		)
+	})
+}
+
+func (svc *Service) genAsyncActivityFunction(f *g.File, activity string, local bool) {
+	method := svc.methods[activity]
+	methodName := method.GoName
+	if local {
+		methodName = fmt.Sprintf("%sLocal", methodName)
+	}
+	methodName = fmt.Sprintf("Async%s", methodName)
 	opts := svc.activities[activity].GetDefaultOptions()
 	hasInput := !isEmpty(method.Input)
 	hasOutput := !isEmpty(method.Output)
@@ -178,11 +221,11 @@ func (svc *Service) genActivityFunction(f *g.File, activity string, local bool) 
 		Id(methodName).
 		ParamsFunc(func(args *g.Group) {
 			args.Id("ctx").Qual(workflowPkg, "Context")
-			addOptionsParam(args, local)
-			addFuncParam(args, local, hasInput, hasOutput, method)
 			if hasInput {
 				args.Id("req").Op("*").Id(method.Input.GoIdent.GoName)
 			}
+			addFuncParam(args, local, hasInput, hasOutput, method)
+			addOptionsParam(args, local)
 		}).
 		Params(
 			g.Op("*").Id(fmt.Sprintf("%sFuture", method.GoName)),
