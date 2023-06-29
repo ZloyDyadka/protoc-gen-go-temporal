@@ -107,7 +107,7 @@ func (wf *SampleWorkflowWithMutexWorkflow) Execute(ctx workflow.Context) (resp *
 	wf.log.Info("started")
 
 	wf.log.Info("requesting lease")
-	if err := mutexv1.Mutex(ctx, nil, &mutexv1.MutexRequest{Resource: wf.Req.GetResource()}).Get(ctx); err != nil {
+	if err := mutexv1.Mutex(ctx, &mutexv1.MutexRequest{Resource: wf.Req.GetResource()}); err != nil {
 		return nil, fmt.Errorf("error requesting lease: %w", err)
 	}
 
