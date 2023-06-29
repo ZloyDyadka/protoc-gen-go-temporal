@@ -176,7 +176,9 @@ func (svc *Service) genSyncActivityFunction(f *g.File, activity string, local bo
 	f.Comment(strings.TrimSuffix(method.Comments.Leading.String(), "\n"))
 	f.Func().Id(methodName).ParamsFunc(func(args *g.Group) {
 		args.Id("ctx").Qual(workflowPkg, "Context")
-		addFuncParam(args, local, hasInput, hasOutput, method)
+		if local {
+			addLocalActivityArgs(args, hasInput, hasOutput, method)
+		}
 		if hasInput {
 			args.Id("req").Op("*").Id(method.Input.GoIdent.GoName)
 		}
@@ -222,38 +224,40 @@ func (svc *Service) genAsyncActivityFunction(f *g.File, activity string, local b
 			if hasInput {
 				args.Id("req").Op("*").Id(method.Input.GoIdent.GoName)
 			}
-			addFuncParam(args, local, hasInput, hasOutput, method)
+			if local {
+				addLocalActivityArgs(args, hasInput, hasOutput, method)
+			}
 		}).
 		Params(
 			g.Op("*").Id(fmt.Sprintf("%sFuture", method.GoName)),
 		).
 		BlockFunc(func(fn *g.Group) {
 			initializeActivityOptions(fn, local)
-			setDefaultRetryPolicy(fn, opts)
-			setDefaultTimeouts(fn, opts, local)
-			injectCtxWithActivityOptions(fn, local)
-			setActivityFunctionForLocal(fn, local, activity)
-			callExecuteActivity(fn, method, local, hasInput)
+			addActivityDefaultRetryPolicy(fn, opts)
+			addActivityDefaultTimeouts(fn, opts, local)
+			addCtxWithActivityOptions(fn, local)
+			if local {
+				setActivityFunctionForLocal(fn, local, activity)
+			}
+			addActivityFutureBuilder(fn, method, local, hasInput)
 		})
 }
 
-func addFuncParam(args *g.Group, local bool, hasInput bool, hasOutput bool, method *protogen.Method) {
-	if local {
-		args.Id("fn").
-			Func().
-			ParamsFunc(func(fnargs *g.Group) {
-				fnargs.Qual("context", "Context")
-				if hasInput {
-					fnargs.Op("*").Id(method.Input.GoIdent.GoName)
-				}
-			}).
-			ParamsFunc(func(fnreturn *g.Group) {
-				if hasOutput {
-					fnreturn.Op("*").Id(method.Output.GoIdent.GoName)
-				}
-				fnreturn.Error()
-			})
-	}
+func addLocalActivityArgs(args *g.Group, hasInput bool, hasOutput bool, method *protogen.Method) {
+	args.Id("fn").
+		Func().
+		ParamsFunc(func(fnargs *g.Group) {
+			fnargs.Qual("context", "Context")
+			if hasInput {
+				fnargs.Op("*").Id(method.Input.GoIdent.GoName)
+			}
+		}).
+		ParamsFunc(func(fnreturn *g.Group) {
+			if hasOutput {
+				fnreturn.Op("*").Id(method.Output.GoIdent.GoName)
+			}
+			fnreturn.Error()
+		})
 }
 
 func initializeActivityOptions(fn *g.Group, local bool) {
@@ -266,31 +270,34 @@ func initializeActivityOptions(fn *g.Group, local bool) {
 	)
 }
 
-func setDefaultRetryPolicy(fn *g.Group, opts *temporalv1.ActivityOptions_StartOptions) {
-	if policy := opts.GetRetryPolicy(); policy != nil {
-		fn.If(g.Id("opts").Dot("RetryPolicy").Op("==").Nil()).Block(
-			g.Id("opts").Dot("RetryPolicy").Op("=").Op("&").Qual(temporalPkg, "RetryPolicy").ValuesFunc(func(fields *g.Group) {
-				if d := policy.GetInitialInterval(); d.IsValid() {
-					fields.Id("InitialInterval").Op(":").Id(strconv.FormatInt(d.AsDuration().Nanoseconds(), 10))
-				}
-				if d := policy.GetMaxInterval(); d.IsValid() {
-					fields.Id("MaximumInterval").Op(":").Id(strconv.FormatInt(d.AsDuration().Nanoseconds(), 10))
-				}
-				if n := policy.GetBackoffCoefficient(); n != 0 {
-					fields.Id("BackoffCoefficient").Op(":").Lit(n)
-				}
-				if n := policy.GetMaxAttempts(); n != 0 {
-					fields.Id("MaximumAttempts").Op(":").Lit(n)
-				}
-				if errs := policy.GetNonRetryableErrorTypes(); len(errs) > 0 {
-					fields.Id("NonRetryableErrorTypes").Op(":").Lit(errs)
-				}
-			}),
-		)
+func addActivityDefaultRetryPolicy(fn *g.Group, opts *temporalv1.ActivityOptions_StartOptions) {
+	policy := opts.GetRetryPolicy()
+	if policy == nil {
+		return
 	}
+
+	fn.If(g.Id("opts").Dot("RetryPolicy").Op("==").Nil()).Block(
+		g.Id("opts").Dot("RetryPolicy").Op("=").Op("&").Qual(temporalPkg, "RetryPolicy").ValuesFunc(func(fields *g.Group) {
+			if d := policy.GetInitialInterval(); d.IsValid() {
+				fields.Id("InitialInterval").Op(":").Id(strconv.FormatInt(d.AsDuration().Nanoseconds(), 10))
+			}
+			if d := policy.GetMaxInterval(); d.IsValid() {
+				fields.Id("MaximumInterval").Op(":").Id(strconv.FormatInt(d.AsDuration().Nanoseconds(), 10))
+			}
+			if n := policy.GetBackoffCoefficient(); n != 0 {
+				fields.Id("BackoffCoefficient").Op(":").Lit(n)
+			}
+			if n := policy.GetMaxAttempts(); n != 0 {
+				fields.Id("MaximumAttempts").Op(":").Lit(n)
+			}
+			if errs := policy.GetNonRetryableErrorTypes(); len(errs) > 0 {
+				fields.Id("NonRetryableErrorTypes").Op(":").Lit(errs)
+			}
+		}),
+	)
 }
 
-func setDefaultTimeouts(fn *g.Group, opts *temporalv1.ActivityOptions_StartOptions, local bool) {
+func addActivityDefaultTimeouts(fn *g.Group, opts *temporalv1.ActivityOptions_StartOptions, local bool) {
 	setTimeoutIfValid(fn, opts.GetHeartbeatTimeout(), "HeartbeatTimeout", !local)
 	setTimeoutIfValid(fn, opts.GetScheduleToCloseTimeout(), "ScheduleToCloseTimeout", true)
 	setTimeoutIfValid(fn, opts.GetScheduleToStartTimeout(), "ScheduleToStartTimeout", !local)
@@ -307,36 +314,34 @@ func setTimeoutIfValid(fn *g.Group, timeout *durationpb.Duration, field string, 
 	}
 }
 
-func injectCtxWithActivityOptions(fn *g.Group, local bool) {
+func addCtxWithActivityOptions(fn *g.Group, local bool) {
 	if local {
 		fn.Id("ctx").Op("=").Qual(workflowPkg, "WithLocalActivityOptions").Call(
 			g.Id("ctx"),
 			g.Id("opts"),
 		)
-
-	} else {
-		fn.Id("ctx").Op("=").Qual(workflowPkg, "WithActivityOptions").Call(
-			g.Id("ctx"),
-			g.Id("opts"),
-		)
+		return
 	}
+
+	fn.Id("ctx").Op("=").Qual(workflowPkg, "WithActivityOptions").Call(
+		g.Id("ctx"),
+		g.Id("opts"),
+	)
 }
 
 func setActivityFunctionForLocal(fn *g.Group, local bool, activity string) {
-	if local {
-		fn.Var().Id("activity").Any()
-		fn.If(g.Id("fn").Op("==").Nil()).
-			Block(
-				g.Id("activity").Op("=").Id(fmt.Sprintf("%sActivityName", activity)),
-			).
-			Else().
-			Block(
-				g.Id("activity").Op("=").Id("fn"),
-			)
-	}
+	fn.Var().Id("activity").Any()
+	fn.If(g.Id("fn").Op("==").Nil()).
+		Block(
+			g.Id("activity").Op("=").Id(fmt.Sprintf("%sActivityName", activity)),
+		).
+		Else().
+		Block(
+			g.Id("activity").Op("=").Id("fn"),
+		)
 }
 
-func callExecuteActivity(fn *g.Group, method *protogen.Method, local bool, hasInput bool) {
+func addActivityFutureBuilder(fn *g.Group, method *protogen.Method, local bool, hasInput bool) {
 	fn.Return(
 		g.Op("&").Id(fmt.Sprintf("%sFuture", method.GoName)).ValuesFunc(func(bl *g.Group) {
 			future := bl.Id("Future").Op(":")
