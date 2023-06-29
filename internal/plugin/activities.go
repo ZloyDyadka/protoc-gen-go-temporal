@@ -166,12 +166,7 @@ func (svc *Service) genActivityFutureSelectMethod(f *g.File, activity string) {
 
 func (svc *Service) genSyncActivityFunction(f *g.File, activity string, local bool) {
 	method := svc.methods[activity]
-	methodName := method.GoName
-	if local {
-		methodName = fmt.Sprintf("%sLocal", methodName)
-	}
-	hasInput := !isEmpty(method.Input)
-	hasOutput := !isEmpty(method.Output)
+	methodName, hasInput, hasOutput := svc.getActivityDetails(method, local)
 
 	f.Comment(strings.TrimSuffix(method.Comments.Leading.String(), "\n"))
 	f.Func().Id(methodName).ParamsFunc(func(args *g.Group) {
@@ -208,14 +203,10 @@ func (svc *Service) genSyncActivityFunction(f *g.File, activity string, local bo
 
 func (svc *Service) genAsyncActivityFunction(f *g.File, activity string, local bool) {
 	method := svc.methods[activity]
-	methodName := method.GoName
-	if local {
-		methodName = fmt.Sprintf("%sLocal", methodName)
-	}
-	methodName = fmt.Sprintf("Async%s", methodName)
+	methodName, hasInput, hasOutput := svc.getActivityDetails(method, local)
+	methodName = "Async" + methodName
+
 	opts := svc.activities[activity].GetDefaultOptions()
-	hasInput := !isEmpty(method.Input)
-	hasOutput := !isEmpty(method.Output)
 	f.Comment(strings.TrimSuffix(method.Comments.Leading.String(), "\n"))
 	f.Func().
 		Id(methodName).
@@ -241,6 +232,17 @@ func (svc *Service) genAsyncActivityFunction(f *g.File, activity string, local b
 			}
 			addActivityFutureBuilder(fn, method, local, hasInput)
 		})
+}
+
+func (svc *Service) getActivityDetails(method *protogen.Method, local bool) (string, bool, bool) {
+	methodName := method.GoName
+	if local {
+		methodName = fmt.Sprintf("%sLocal", methodName)
+	}
+	hasInput := !isEmpty(method.Input)
+	hasOutput := !isEmpty(method.Output)
+
+	return methodName, hasInput, hasOutput
 }
 
 func addLocalActivityArgs(args *g.Group, hasInput bool, hasOutput bool, method *protogen.Method) {
